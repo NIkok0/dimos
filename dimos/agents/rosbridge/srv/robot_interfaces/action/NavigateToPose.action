@@ -1,0 +1,19 @@
+# robot_interfaces/action/NavigateToPose — from ros2 interface show on daxbot-104
+geometry_msgs/PoseStamped pose
+string behavior_tree
+---
+int32 SUCCEEDED = 0
+int32 FAILED = 1
+int32 CANCELED = 2
+int32 result_code
+string result_message
+geometry_msgs/PoseStamped result_pose
+---
+geometry_msgs/PoseStamped current_pose
+builtin_interfaces/Duration navigation_time
+builtin_interfaces/Duration estimated_time_remaining
+float32 distance_remaining
+float32 speed
+int32 navigation_state
+string navigation_state_description
+uint8[] uuid

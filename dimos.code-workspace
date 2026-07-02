@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../py_rosbridge"
+		},
+		{
+			"path": "../pyros"
+		},
+		{
+			"path": "../dax_planner_ws-main"
+		},
+		{
+			"path": "../lerobot-1"
+		}
+	],
+	"settings": {}
+}

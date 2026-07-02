@@ -1,0 +1,9 @@
+# Move robot to the specified workspace. Maps to HTTP POST /go_to_workspace.
+string workspace_name
+string workspace_color
+---
+string command
+string status
+bool success
+string failure_reason
+string result_json

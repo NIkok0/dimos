@@ -1,0 +1,9 @@
+# Run built-in demo. Maps to HTTP POST /run_demo.
+string workspace_color
+string sku_color
+---
+string command
+string status
+bool success
+string failure_reason
+string result_json

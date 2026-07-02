@@ -1,0 +1,12 @@
+# Pick the specified SKU on the workspace. Maps to HTTP POST /pick_sku.
+string workspace_name
+string workspace_color
+string sku_name
+string sku_color
+string side
+---
+string command
+string status
+bool success
+string failure_reason
+string result_json

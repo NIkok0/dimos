@@ -1,0 +1,384 @@
+version: nl_semantics_v1
+
+intents:
+  move_relative:
+    required_slots: [direction, distance_units]
+    description: Move the robot in a relative direction
+    llm_slots: [direction, distance_meters, speed]
+  move_to_workspace:
+    required_slots: [workspace_name]
+    description: Navigate to a named workspace
+    llm_slots: [workspace_name, workspace_color, approach_direction]
+  pick_sku:
+    required_slots: [workspace_name, workspace_color, sku_name, sku_color]
+    description: Pick up an object from a workspace
+    llm_slots: [workspace_type, table_color, object_type, object_color, goal_workspace_type, goal_table_color]
+  fetch_sku:
+    required_slots:
+      - source_workspace_name
+      - source_workspace_color
+      - target_workspace_name
+      - target_workspace_color
+      - sku_name
+      - sku_color
+    description: Fetch an object from one workspace and deliver to another
+    llm_slots:
+      - source_workspace_name
+      - source_workspace_color
+      - target_workspace_name
+      - target_workspace_color
+      - sku_name
+      - sku_color
+  guard_loop:
+    required_slots: [waypoints, loop_count]
+    description: Patrol between multiple waypoints
+    llm_slots: [waypoints, loop_count, patrol_speed]
+
+pick:
+  terms:
+    - pick
+    - pickup
+    - pick up
+    - grab
+    - 抓
+    - 抓取
+    - 拿
+    - 拿取
+  table_colors:
+    - blue
+    - red
+    - green
+  trusted_combinations:
+    blue: [red, yellow, green]
+    red: [yellow, blue, green]
+    green: [yellow, blue, red]
+
+skus:
+  cube:
+    aliases: [cube, 方块, 立方体]
+  box:
+    aliases: [box, 盒子]
+  bottle:
+    aliases: [bottle, 瓶子]
+
+fetch:
+  keywords:
+    - fetch
+    - relocate
+    - 拿到
+    - 放到
+    - 送到
+    - 取到
+    - 移动
+    - 搬运
+  alt_keywords:
+    - 放下
+    - dropit
+    - drop
+  sku_defaults:
+    name: cube
+    aliases:
+      - cube
+      - 方块
+      - 立方体
+      - box
+      - 盒子
+      - bottle
+      - 瓶子
+
+guard:
+  keywords:
+    - guard
+    - patrol
+    - 巡逻
+    - 守卫
+    - 巡查
+    - 巡视
+    - 巡防
+
+loop_counts:
+  semantic_aliases:
+    "1": 1
+    one: 1
+    once: 1
+    一圈: 1
+    一次: 1
+    "2": 2
+    two: 2
+    twice: 2
+    两圈: 2
+    二圈: 2
+    两次: 2
+    "3": 3
+    three: 3
+    thrice: 3
+    三圈: 3
+    三次: 3
+    "4": 4
+    four: 4
+    四圈: 4
+    四次: 4
+    "5": 5
+    five: 5
+    五圈: 5
+    五次: 5
+
+movement_triggers:
+  - move
+  - navigate
+  - goto
+  - go
+  - walk
+  - drive
+  - shift
+  - slide
+  - step
+  - back
+  - forward
+  - head to
+  - drive to
+  - 移动
+  - 导航
+  - 前往
+  - 前进
+  - 后退
+  - 转向
+  - 走
+  - 挪
+  - 移
+  - 动
+  - 滑
+  - 退
+  - 进
+  - 往后
+  - 往前
+  - 向前
+  - 向后
+  - 向左
+  - 向右
+  - 朝后
+  - 朝前
+  - 左移
+  - 右移
+  - 左挪
+  - 右挪
+  - 前移
+  - 后移
+  - 开到
+  - 行至
+  - 挪到
+
+object_task_exclusions:
+  - pick
+  - fetch
+  - drop
+  - grab
+  - place
+  - put
+  - 抓
+  - 拿
+  - 取
+  - 放
+  - 丢
+  - 扔
+  - 方块
+  - 立方体
+  - cube
+  - box
+  - object
+  - 物体
+
+directions:
+  backward:
+    aliases:
+      - backward
+      - back
+      - 向后
+      - 朝后
+      - 朝向后
+      - 背向
+      - 后退
+      - 往后
+      - 往后退
+      - 向后退
+      - 退后
+      - 后
+      - 退
+    confidence_tiers:
+      with_meter: 0.95
+      with_step: 0.90
+      fuzzy: 0.80
+  forward:
+    aliases:
+      - forward
+      - ahead
+      - straight
+      - 向前
+      - 朝前
+      - 朝向前
+      - 面向
+      - 前进
+      - 往前
+      - 向前进
+      - 朝前走
+      - 向前移
+      - 前
+      - 进
+    confidence_tiers:
+      with_meter: 0.95
+      with_step: 0.90
+      fuzzy: 0.80
+  left:
+    aliases:
+      - left
+      - 向左
+      - 朝左
+      - 左向
+      - 左移
+      - 左挪
+      - 往左
+      - 向左走
+      - 向左移
+      - 左边
+      - 左侧
+    confidence_tiers:
+      with_meter: 0.95
+      with_step: 0.90
+      fuzzy: 0.80
+  right:
+    aliases:
+      - right
+      - 向右
+      - 朝右
+      - 右向
+      - 右移
+      - 右挪
+      - 往右
+      - 向右走
+      - 向右移
+      - 右边
+      - 右侧
+    confidence_tiers:
+      with_meter: 0.95
+      with_step: 0.90
+      fuzzy: 0.80
+
+distances:
+  semantic_aliases:
+    one: 1.0
+    two: 2.0
+    three: 3.0
+    four: 4.0
+    five: 5.0
+    a bit: 0.5
+    a little: 0.5
+    a little bit: 0.3
+    a step: 1.0
+    two steps: 2.0
+    three steps: 3.0
+    half: 0.5
+    half step: 0.5
+    sliver: 0.3
+    slightly: 0.3
+    一: 1.0
+    二: 2.0
+    两: 2.0
+    三: 3.0
+    四: 4.0
+    五: 5.0
+    六: 6.0
+    七: 7.0
+    八: 8.0
+    九: 9.0
+    十: 10.0
+    半: 0.5
+    一点: 0.5
+    一点点: 0.3
+    一些: 1.0
+    一步: 1.0
+    两步: 2.0
+    三步: 3.0
+    稍微: 0.3
+    轻微: 0.3
+    少许: 0.5
+    少量: 0.5
+    一丢丢: 0.3
+    一下: 0.5
+    一丢: 0.3
+    稍稍: 0.3
+    一点点距离: 0.3
+    格: 1.0
+    格子: 1.0
+    格点: 1.0
+    个单位: 1.0
+    单位: 1.0
+    块: 1.0
+    段: 2.0
+
+colors:
+  blue:
+    aliases: [blue, 蓝色, 蓝]
+    nl: 蓝色
+  green:
+    aliases: [green, 绿色, 绿]
+    nl: 绿色
+  red:
+    aliases: [red, 红色, 红]
+    nl: 红色
+  yellow:
+    aliases: [yellow, 黄色, 黄]
+    nl: 黄色
+
+direction_nl:
+  forward: 向前
+  backward: 向后
+  left: 向左
+  right: 向右
+
+workspaces:
+  front_workspace:
+    requires_color: false
+    aliases:
+      - front_workspace
+      - 前方固定工作区
+      - 前方工作区
+      - 前工作区
+      - front
+      - 去前面
+  table:
+    requires_color: true
+    color_slot: workspace_color
+    aliases:
+      - table
+      - 桌子
+      - 桌
+      - 工作台
+      - 桌面
+
+conflict_rules:
+  - name: suppress_relative_when_workspace
+    if_workspace_alias_present: true
+    suppress_intent: move_relative
+
+canonical_templates:
+  move_relative: "{direction_nl}移动{distance_m}米"
+  move_to_workspace:
+    front_workspace: "移动到前方固定工作区"
+    table: "前往{color_nl}桌子"
+
+eval_templates:
+  move_relative:
+    - "{direction_alias}移动{distance}米"
+    - "go {direction_alias} {distance}m"
+    - "{direction_alias}{distance}格"
+  move_to_workspace:
+    - "{movement_trigger}{workspace_alias}"
+    - "go to the {color_en} table"
+    - "navigate to {color_en} table"
+  pick_sku:
+    - "去{goal_color_nl}桌子抓{color_nl}方块"
+    - "pick the {color_en} cube from the {goal_color_en} table"
+  fetch_sku:
+    - "把{sku_color_nl}方块从{source_color_nl}桌子拿到{target_color_nl}桌子"
+  guard_loop:
+    - "在{source_color_nl}和{target_color_nl}桌子之间巡逻{loop_count_nl}"

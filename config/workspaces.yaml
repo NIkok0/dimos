@@ -1,0 +1,33 @@
+# Map-frame workspace poses for ros_topic navigation (NavigateToPose).
+# Update x/y/yaw to match your live /map frame before absolute navigation tasks.
+# Relative move (move_relative) does not use these poses but the catalog is still required.
+
+front_workspace:
+  workspace_id: front_workspace
+  name: workspace
+  color: front
+  frame_id: map
+  x: 1.8
+  y: 0.0
+  yaw: 0.0
+  aliases:
+    - 前方固定工作区
+    - front
+
+blue_table:
+  workspace_id: blue_table
+  name: table
+  color: blue
+  frame_id: map
+  x: 2.4
+  y: 0.6
+  yaw: 1.57
+
+green_table:
+  workspace_id: green_table
+  name: table
+  color: green
+  frame_id: map
+  x: 2.4
+  y: -0.6
+  yaw: 1.57

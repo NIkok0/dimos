@@ -1,0 +1,11 @@
+# Full pick task (navigate + grasp). Maps to HTTP POST /execute_pick_task.
+string workspace_name
+string workspace_color
+string sku_name
+string sku_color
+---
+string command
+string status
+bool success
+string failure_reason
+string result_json

@@ -1,0 +1,7 @@
+# Trigger command with empty request (reset_scene / get_state).
+---
+string command
+string status
+bool success
+string failure_reason
+string result_json

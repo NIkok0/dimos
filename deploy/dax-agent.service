@@ -1,0 +1,17 @@
+[Unit]
+Description=DimOS dax-agent (real-robot thin entrypoint)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/dax-agent
+EnvironmentFile=/opt/dax-agent/.env
+ExecStart=/opt/dax-agent/.venv/bin/python scripts/run_dax_agent.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/dax-agent/dax-agent.log
+StandardError=append:/var/log/dax-agent/dax-agent.log
+
+[Install]
+WantedBy=multi-user.target
