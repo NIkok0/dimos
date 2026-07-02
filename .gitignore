@@ -48,6 +48,7 @@ package-lock.json
 # Ignore build artifacts
 dist/
 build/
+.wheels/
 
 # Rust build artifacts
 **/target/
