@@ -24,18 +24,6 @@ __pycache__
 .env
 **/.DS_Store
 
-# Personal notes at repo root (keep locally, not in git)
-/*_plan.md
-/*_prompt.md
-/*_requirements.md
-/*_learning.md
-/*_contract.md
-/ENVIRONMENT_ANALYSIS.md
-/Planner and Orchestrator.md
-/Agentos_architecture_v1---week1.md
-/ros2_basics_jazzy.md
-/gRPC*.md
-
 # Ignore default runtime output folder
 /output/
 /assets/output/
