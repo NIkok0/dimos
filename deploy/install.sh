@@ -11,12 +11,12 @@ SERVICE="dax-agent.service"
 
 cd "$INSTALL_DIR"
 
-echo "==> Installing Python deps via uv (extra dax-agent only)"
+echo "==> Installing Python deps via uv (minimal dax-agent, isolated venv)"
 if ! command -v uv >/dev/null 2>&1; then
     echo "ERROR: uv not installed. Install: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
     exit 1
 fi
-uv sync --extra dax-agent
+bash deploy/uv-sync-robot.sh "$INSTALL_DIR"
 
 echo "==> Placing .env from template (skip if already present)"
 if [ ! -f .env ]; then

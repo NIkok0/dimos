@@ -91,14 +91,11 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 
+# Minimal runtime for dax-agent on a real robot (deploy/dax-agent branch).
+# Perception / viz / CLI / mapping deps live in optional extras below.
 dependencies = [
-    # Transport Protocols
     "dimos-lcm>=0.1.3",
-    "PyTurboJPEG==1.8.2",
-    # Core
     "numpy>=1.26.4",
-    "scipy>=1.15.1",
-    "pin>=3.3.0", # Pinocchio IK library
     "reactivex",
     "sortedcontainers==2.4.0",
     "pydantic",
@@ -107,33 +104,13 @@ dependencies = [
     "annotation-protocol>=1.4.0",
     "lazy_loader",
     "plum-dispatch==2.5.7",
-    # Logging
     "structlog>=25.5.0,<26",
     "colorlog==6.9.0",
-    # Core Msgs
-    "opencv-python",
-    "open3d-unofficial-arm>=0.19.0.post9; platform_system == 'Linux' and platform_machine == 'aarch64'",
-    "open3d>=0.18.0; platform_system != 'Linux' or platform_machine != 'aarch64'",
-    # CLI
     "pydantic-settings>=2.11.0,<3",
-    "textual==3.7.1",
-    "terminaltexteffects==0.12.2",
-    "typer>=0.19.2,<1",
-    "plotext==5.3.2",
-    # Used for calculating the occupancy map.
-    "numba>=0.60.0", # First version supporting Python 3.12
-    "llvmlite>=0.42.0", # Required by numba 0.60+
-    # TODO: rerun shouldn't be required but rn its in core (there is NO WAY to use dimos without rerun rn)
-    # remove this once rerun is optional in core
-    "rerun-sdk==0.32.0a1",
-    "dimos-viewer==0.32.0a1",
     "toolz>=1.1.0",
     "protobuf>=6.33.5,<7",
     "psutil>=7.0.0",
-    "sqlite-vec>=0.1.6",
     "lz4>=4.4.5",
-    "bleak>=3.0.2",
-    "cryptography>=46.0.5",
 ]
 
 
@@ -153,6 +130,27 @@ Issues = "https://github.com/dimensionalOS/dimos/issues"
 Changelog = "https://github.com/dimensionalOS/dimos/releases"
 
 [project.optional-dependencies]
+# Former [project.dependencies] heavy stack — opt-in for full DimOS dev on this branch.
+heavy-base = [
+    "PyTurboJPEG==1.8.2",
+    "scipy>=1.15.1",
+    "pin>=3.3.0",
+    "opencv-python",
+    "open3d-unofficial-arm>=0.19.0.post9; platform_system == 'Linux' and platform_machine == 'aarch64'",
+    "open3d>=0.18.0; platform_system != 'Linux' or platform_machine != 'aarch64'",
+    "textual==3.7.1",
+    "terminaltexteffects==0.12.2",
+    "typer>=0.19.2,<1",
+    "plotext==5.3.2",
+    "numba>=0.60.0",
+    "llvmlite>=0.42.0",
+    "rerun-sdk==0.32.0a1",
+    "dimos-viewer==0.32.0a1",
+    "sqlite-vec>=0.1.6",
+    "bleak>=3.0.2",
+    "cryptography>=46.0.5",
+]
+
 misc = [
     # Core requirements
     "cerebras-cloud-sdk",
@@ -221,7 +219,7 @@ agents = [
 ]
 
 ros = [
-    "py-rosbridge @ file:///home/miaoli/Projects/py_rosbridge",
+    "py-rosbridge @ file:///opt/py_rosbridge",
     "grpcio>=1.51",
     "protobuf>=3.21",
 ]
@@ -336,13 +334,10 @@ dds = [
     "cyclonedds>=0.10.5",
 ]
 
-# Minimal dependency set for deploying the dax-agent blueprint on a real robot.
-# Deliberately excludes torch / mujoco / unitree / perception (ultralytics,
-# transformers) / visualization (rerun) / navigation / drone / sim. The base
-# [project.dependencies] (numpy/scipy/opencv/open3d/pin/psutil/typer/...) still
-# install; this extra only adds what the dax-agent chain actually imports.
-# py-rosbridge path is dev-machine specific; on the robot adjust to a local
-# checkout or git URL.
+# Minimal robot agent stack: base deps above + this extra.
+# Deliberately excludes torch / mujoco / unitree / perception / heavy-base.
+# Install: uv sync --extra dax-agent --no-default-groups --no-dev
+# py-rosbridge path is robot-specific; default is /opt/py_rosbridge.
 dax-agent = [
     # MCP server (FastAPI + SSE)
     "fastapi>=0.115.6",
@@ -362,6 +357,8 @@ dax-agent = [
     "protobuf>=3.21",
     # HTTP client
     "requests",
+    # workspace YAML for ros_topic navigation
+    "pyyaml>=6.0",
 ]
 
 base = [
@@ -484,9 +481,9 @@ tests-self-hosted = [
 
 [tool.uv]
 required-version = ">=0.9.17"
-default-groups = ["tests"]
-exclude-newer = "7 days"
-exclude-newer-package = { dimos-viewer = false, pyrealsense2-extended = false, dimos-lcm = false, lcm-dimos-fork = false }
+# deploy/dax-agent: robot-only resolution + no test groups on plain `uv sync`.
+default-groups = []
+environments = ["sys_platform == 'linux' and platform_machine == 'aarch64'"]
 override-dependencies = [
     # moondream pins pillow<11 but we need >=12.2.0 for security fixes
     # (CVE-2026-25990, CVE-2026-40192, CVE-2026-42311).

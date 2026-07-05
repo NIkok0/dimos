@@ -12,27 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import copyreg
-
-import numpy as np
-import open3d as o3d  # type: ignore[import-untyped]
+from typing import Any
 
 
-def reduce_external(obj):  # type: ignore[no-untyped-def]
-    # Convert Vector3dVector to numpy array for pickling
+def reduce_external(obj: Any) -> tuple[Any, tuple[Any, ...]]:  # type: ignore[no-untyped-def]
+    import numpy as np
+
     points_array = np.asarray(obj.points)
     return (reconstruct_pointcloud, (points_array,))
 
 
-def reconstruct_pointcloud(points_array):  # type: ignore[no-untyped-def]
-    # Create new PointCloud and assign the points
+def reconstruct_pointcloud(points_array: Any) -> Any:  # type: ignore[no-untyped-def]
+    import open3d as o3d
+
     pc = o3d.geometry.PointCloud()
     pc.points = o3d.utility.Vector3dVector(points_array)
     return pc
 
 
 def register_picklers() -> None:
-    # Register for the actual PointCloud class that gets instantiated
-    # We need to create a dummy PointCloud to get its actual class
+    """Register open3d PointCloud picklers when open3d is installed.
+
+    dax-agent minimal deploy omits open3d; skip registration in that case.
+    """
+    try:
+        import open3d as o3d
+    except ImportError:
+        return
+
     _dummy_pc = o3d.geometry.PointCloud()
     copyreg.pickle(_dummy_pc.__class__, reduce_external)

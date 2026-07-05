@@ -86,18 +86,21 @@ uv pip install -e /opt/py_rosbridge
 
 修改后重新 lock 并更新 `deploy/uv.lock.dax-agent`（在开发机 `dimos-deploy` worktree 完成，push 后再在真机 pull）。
 
-### 3. 用 uv 创建独立 Python 环境
+### 3. 用 uv 创建独立 Python 环境（逻辑最小集）
+
+`deploy/dax-agent` 分支已将 `[project.dependencies]` 瘦身为 dax-agent 运行时最小核心；opencv / open3d / rerun / CLI 等移至 optional extra `heavy-base`（真机不装）。
 
 ```bash
 cd /opt/dax-agent
 
-# 使用 deploy 分支 pin 的 lock（推荐，可复现）
-cp deploy/uv.lock.dax-agent uv.lock
-uv sync --frozen --extra dax-agent
+# 推荐：清华源 + 隔离 .venv + 仅 dax-agent extra
+bash deploy/uv-sync-robot.sh /opt/dax-agent
 
-# 或使用 install.sh（当前未 --frozen，行为略不同）
+# 或 install.sh（内部调用 uv-sync-robot.sh）
 # bash deploy/install.sh /opt/dax-agent
 ```
+
+自定义 PyPI 镜像：`UV_DEFAULT_INDEX=https://pypi.org/simple bash deploy/uv-sync-robot.sh`
 
 验证 **ROS 未混入 venv**：
 
