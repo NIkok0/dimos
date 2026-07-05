@@ -17,8 +17,8 @@
 The frontend exposes a stop-and-wait REST protocol:
 
 - ``POST /vis/input``   — start a session, returns ``session_id``
-- ``POST /vis/thoughts`` — incremental reasoning step (``seq`` strictly increasing, ACK before next)
-- ``POST /vis/outputs``  — final result, closes the session
+- ``POST /vis/thoughts`` — stream display text as ``content`` (``seq`` strictly increasing, ACK before next)
+- ``POST /vis/outputs``  — end-of-turn ``tool_calls`` JSON array (skipped when none)
 
 This module subscribes to the four DimOS LCM streams that ``McpClient`` publishes
 (``human_input``, ``agent_reasoning``, ``agent``, ``agent_idle``) and translates one
@@ -88,8 +88,7 @@ class VisBridgeSkill(Module):
         # Session state — only touched inside the worker thread.
         self._session_id: str | None = None
         self._seq: int = 0
-        self._ai_content: str = ""
-        self._ai_reasoning: str = ""
+        self._ai_tool_calls: list[dict[str, Any]] = []
 
     @rpc
     def start(self) -> None:
@@ -171,8 +170,7 @@ class VisBridgeSkill(Module):
             return
         self._session_id = session_id
         self._seq = 0
-        self._ai_content = ""
-        self._ai_reasoning = ""
+        self._ai_tool_calls = []
         logger.info("VisBridge session started", session_id=session_id, text_preview=text[:120])
 
     def _handle_reasoning(self, data: dict[str, Any]) -> None:
@@ -198,24 +196,36 @@ class VisBridgeSkill(Module):
             return
         text = self._ai_message_text(msg)
         if text:
-            self._ai_content = text
-        additional_kwargs = getattr(msg, "additional_kwargs", None) or {}
-        reasoning = additional_kwargs.get("reasoning_content")
-        if reasoning:
-            self._ai_reasoning = str(reasoning)
+            self._seq += 1
+            ok = self._post_vis_thoughts(self._session_id, self._seq, text)
+            if not ok:
+                logger.error(
+                    "VisBridge /vis/thoughts failed after retries; aborting session",
+                    session_id=self._session_id,
+                    seq=self._seq,
+                )
+                self._reset_session()
+                return
+        self._append_tool_calls(msg)
 
     def _handle_idle(self) -> None:
         if self._session_id is None:
             return
-        result: dict[str, Any] = {"content": self._ai_content}
-        if self._ai_reasoning:
-            result["reasoning_content"] = self._ai_reasoning
+        if not self._ai_tool_calls:
+            logger.info(
+                "VisBridge session closed",
+                session_id=self._session_id,
+                tool_calls=0,
+            )
+            self._reset_session()
+            return
+        result: dict[str, Any] = {"tool_calls": self._ai_tool_calls}
         ok = self._post_vis_outputs(self._session_id, result)
         if ok:
             logger.info(
                 "VisBridge session closed",
                 session_id=self._session_id,
-                reply_preview=self._ai_content[:120],
+                tool_calls=len(self._ai_tool_calls),
             )
         else:
             logger.error("VisBridge /vis/outputs failed", session_id=self._session_id)
@@ -224,10 +234,36 @@ class VisBridgeSkill(Module):
     def _reset_session(self) -> None:
         self._session_id = None
         self._seq = 0
-        self._ai_content = ""
-        self._ai_reasoning = ""
+        self._ai_tool_calls = []
+
+    def _append_tool_calls(self, msg: AIMessage) -> None:
+        seen = {tc.get("id") for tc in self._ai_tool_calls if tc.get("id")}
+        for tc in self._normalize_tool_calls(msg):
+            tc_id = tc.get("id")
+            if tc_id and tc_id in seen:
+                continue
+            if tc_id:
+                seen.add(tc_id)
+            self._ai_tool_calls.append(tc)
 
     # --- HTTP calls (mockable in tests) -----------------------------------
+
+    @staticmethod
+    def _normalize_tool_calls(msg: AIMessage) -> list[dict[str, Any]]:
+        raw = getattr(msg, "tool_calls", None) or []
+        out: list[dict[str, Any]] = []
+        for tc in raw:
+            if not isinstance(tc, dict):
+                continue
+            out.append(
+                {
+                    "name": tc.get("name"),
+                    "args": tc.get("args") or {},
+                    "id": tc.get("id"),
+                    "type": tc.get("type") or "tool_call",
+                }
+            )
+        return out
 
     @staticmethod
     def _ai_message_text(message: AIMessage) -> str:

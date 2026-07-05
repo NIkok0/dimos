@@ -357,7 +357,7 @@ dax-agent = [
     "langchain-deepseek>=1,<2",
     "langchain-openai>=1,<2",
     # rosbridge gRPC client (robot-side: change path to local checkout or git URL)
-    "py-rosbridge @ file:///home/miaoli/Projects/py_rosbridge",
+    "py-rosbridge @ file:///opt/py_rosbridge",
     "grpcio>=1.51",
     "protobuf>=3.21",
     # HTTP client
