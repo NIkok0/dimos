@@ -25,7 +25,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 import inspect
+import os
 from pathlib import Path
+import subprocess
 import sys
 import threading
 import time
@@ -86,9 +88,13 @@ class DaxSkillSdkAdapter:
         dry_run: bool = True,
         step_confirm: bool = False,
         timeout_s: float = 30.0,
+        executor: str = "inprocess",
+        ros_setup: str = "/opt/ros/humble/setup.bash",
+        ros_executor_script: str = "",
         load_plan_fn: Callable[[str], _DaxPlan] | None = None,
         run_plan_fn: Callable[..., Sequence[_DaxResult]] | None = None,
         runtime_factory: Callable[[str], _DaxRuntime] | None = None,
+        subprocess_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
     ) -> None:
         self._sdk_ws = sdk_ws
         self._composite_dir = composite_dir
@@ -98,9 +104,13 @@ class DaxSkillSdkAdapter:
         self._dry_run = dry_run
         self._step_confirm = step_confirm
         self._timeout_s = timeout_s
+        self._executor = executor.strip().lower()
+        self._ros_setup = ros_setup
+        self._ros_executor_script = ros_executor_script
         self._load_plan_fn = load_plan_fn
         self._run_plan_fn = run_plan_fn
         self._runtime_factory = runtime_factory
+        self._subprocess_runner = subprocess_runner or subprocess.run
         self._runtime: _DaxRuntime | None = None
         self._runtime_lock = threading.Lock()
         self._execution_lock = threading.Lock()
@@ -117,6 +127,9 @@ class DaxSkillSdkAdapter:
             dry_run=config.dax_skill_dry_run,
             step_confirm=config.dax_skill_step_confirm,
             timeout_s=config.dax_skill_timeout_s,
+            executor=config.dax_skill_executor,
+            ros_setup=config.dax_skill_ros_setup,
+            ros_executor_script=config.dax_skill_ros_executor_script,
         )
 
     def place(
@@ -184,6 +197,7 @@ class DaxSkillSdkAdapter:
             "dry_run": self._dry_run,
             "step_confirm": self._step_confirm,
             "timeout_s": self._timeout_s,
+            "executor": self._executor,
             "phase": "dax_dry_run" if self._dry_run else "dax_run_plan",
             "failed_step": None,
             **(metadata or {}),
@@ -198,6 +212,14 @@ class DaxSkillSdkAdapter:
 
         started = time.monotonic()
         with self._execution_lock:
+            if self._executor == "subprocess":
+                return self._run_composite_subprocess(
+                    yaml_path=self._resolve_yaml_path(yaml_name),
+                    normalized_inputs=normalized_inputs,
+                    base_metadata=base_metadata,
+                    started=started,
+                )
+
             runtime_result = self._ensure_runtime()
             if not runtime_result.success:
                 runtime_result.metadata.update(base_metadata)
@@ -258,7 +280,10 @@ class DaxSkillSdkAdapter:
     def check_runtime_ready(self, *, request_id: str) -> SkillResult[DaxSkillError]:
         """Check whether Dax RuntimeContext can be setup before real robot execution."""
         started = time.monotonic()
-        result = self._ensure_runtime()
+        if self._executor == "subprocess":
+            result = self._check_subprocess_runtime()
+        else:
+            result = self._ensure_runtime()
         duration_ms = _elapsed_ms(started)
         metadata = {
             "request_id": request_id,
@@ -277,6 +302,179 @@ class DaxSkillSdkAdapter:
         result.metadata.update(metadata)
         result.duration_ms = duration_ms
         return result
+
+    def _resolve_ros_executor_script(self) -> Path:
+        """Return the bash wrapper that sources ROS and runs ros2 skill_executor."""
+        if self._ros_executor_script:
+            path = Path(self._ros_executor_script)
+        else:
+            path = Path(__file__).resolve().parents[2] / "deploy/run_ros2_skill_executor.sh"
+        if not path.is_file():
+            raise FileNotFoundError(f"Dax ROS executor script not found: {path}")
+        return path
+
+    def _subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env["DAX_SKILL_SDK_WS"] = self._sdk_ws
+        env["DAX_SKILL_ROS_SETUP"] = self._ros_setup
+        return env
+
+    def _build_subprocess_cmd(
+        self,
+        yaml_path: Path,
+        inputs: dict[str, Any],
+        *,
+        dry_run: bool = False,
+    ) -> list[str]:
+        script = self._resolve_ros_executor_script()
+        cmd = ["bash", str(script), str(yaml_path)]
+        if dry_run:
+            cmd.append("--dry-run")
+        else:
+            cmd.append("--no-confirm")
+            if self._step_confirm:
+                cmd.append("--step-confirm")
+        for key, value in sorted(inputs.items()):
+            cmd.extend(["--input", f"{key}={value}"])
+        return cmd
+
+    def _check_subprocess_runtime(self) -> SkillResult[DaxSkillError]:
+        """Verify ros2 skill_executor --dry-run works in the ROS subprocess wrapper."""
+        yaml_path = self._resolve_yaml_path("go_home.yaml")
+        if not yaml_path.is_file():
+            return SkillResult(
+                success=False,
+                error_code="DAX_PLAN_LOAD_FAILED",
+                message=f"Dax composite YAML not found: {yaml_path}",
+                metadata={"yaml_path": str(yaml_path)},
+            )
+        try:
+            cmd = self._build_subprocess_cmd(yaml_path, {}, dry_run=True)
+        except FileNotFoundError as exc:
+            return SkillResult(
+                success=False,
+                error_code="DAX_SDK_UNAVAILABLE",
+                message=str(exc),
+            )
+        try:
+            proc = self._subprocess_runner(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=min(30.0, self._timeout_s),
+                env=self._subprocess_env(),
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return SkillResult(
+                success=False,
+                error_code="DAX_EXECUTION_TIMEOUT",
+                message="Dax subprocess runtime check timed out.",
+            )
+        except OSError as exc:
+            return SkillResult(
+                success=False,
+                error_code="DAX_SDK_UNAVAILABLE",
+                message=f"Dax subprocess runtime check failed: {exc}",
+            )
+        if proc.returncode == 0:
+            return SkillResult.ok("Dax subprocess runtime is ready.")
+        detail = (proc.stderr or proc.stdout or "").strip()
+        return SkillResult(
+            success=False,
+            error_code="DAX_SDK_UNAVAILABLE" if proc.returncode == 127 else "DAX_RUNTIME_NOT_READY",
+            message=detail or f"Dax subprocess dry-run failed (exit {proc.returncode}).",
+            metadata={"subprocess_exit_code": proc.returncode},
+        )
+
+    def _run_composite_subprocess(
+        self,
+        *,
+        yaml_path: Path,
+        normalized_inputs: dict[str, Any],
+        base_metadata: dict[str, Any],
+        started: float,
+    ) -> SkillResult[DaxSkillError]:
+        try:
+            cmd = self._build_subprocess_cmd(yaml_path, normalized_inputs)
+        except FileNotFoundError as exc:
+            return SkillResult(
+                success=False,
+                error_code="DAX_SDK_UNAVAILABLE",
+                message=str(exc),
+                metadata={**base_metadata, "executor": "subprocess"},
+            )
+        try:
+            proc = self._subprocess_runner(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout_s,
+                env=self._subprocess_env(),
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            duration_ms = _elapsed_ms(started)
+            return SkillResult(
+                success=False,
+                error_code="DAX_EXECUTION_TIMEOUT",
+                message=f"Dax composite skill exceeded timeout {self._timeout_s:.3f}s.",
+                duration_ms=duration_ms,
+                metadata={
+                    **base_metadata,
+                    "executor": "subprocess",
+                    "duration_ms": duration_ms,
+                    "dax_results": [],
+                },
+            )
+        except OSError as exc:
+            duration_ms = _elapsed_ms(started)
+            return SkillResult(
+                success=False,
+                error_code="DAX_SDK_UNAVAILABLE",
+                message=f"Dax subprocess execution failed: {exc}",
+                duration_ms=duration_ms,
+                metadata={**base_metadata, "executor": "subprocess", "duration_ms": duration_ms},
+            )
+
+        duration_ms = _elapsed_ms(started)
+        stdout = proc.stdout or ""
+        stderr = proc.stderr or ""
+        result_metadata = {
+            **base_metadata,
+            "executor": "subprocess",
+            "duration_ms": duration_ms,
+            "subprocess_exit_code": proc.returncode,
+            "subprocess_stdout_tail": stdout[-4000:],
+            "subprocess_stderr_tail": stderr[-4000:],
+            "dax_results": [],
+        }
+        if duration_ms > self._timeout_s * 1000.0:
+            return SkillResult(
+                success=False,
+                error_code="DAX_EXECUTION_TIMEOUT",
+                message=f"Dax composite skill exceeded timeout {self._timeout_s:.3f}s.",
+                duration_ms=duration_ms,
+                metadata=result_metadata,
+            )
+        if proc.returncode == 0:
+            return SkillResult(
+                success=True,
+                message="Dax composite skill completed successfully (subprocess).",
+                duration_ms=duration_ms,
+                metadata=result_metadata,
+            )
+        detail = stderr.strip() or stdout.strip()
+        error_code: DaxSkillError = (
+            "DAX_SDK_UNAVAILABLE" if proc.returncode == 127 else "DAX_SKILL_FAILED"
+        )
+        return SkillResult(
+            success=False,
+            error_code=error_code,
+            message=detail or f"Dax subprocess failed (exit {proc.returncode}).",
+            duration_ms=duration_ms,
+            metadata=result_metadata,
+        )
 
     def _load_plan(self, yaml_name: str) -> SkillResult[DaxSkillError]:
         """Resolve and load a Dax YAML plan without importing SDK at module load time."""

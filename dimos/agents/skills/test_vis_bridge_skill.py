@@ -114,9 +114,10 @@ def test_full_turn_posts_content_via_thoughts_and_tool_calls_via_outputs(
     assert recorder.calls[1][1] == {"session_id": "sess_1", "seq": 1, "content": "plan: starting"}
     assert recorder.calls[2][1]["seq"] == 2
     assert recorder.calls[3][1]["content"] == "你好，我是 Dax"
-    assert recorder.calls[4][1]["result"]["tool_calls"] == [
+    assert recorder.calls[4][1]["tool_calls"] == [
         {"name": "wave", "args": {}, "id": "call_1", "type": "tool_call"},
     ]
+    assert "result" not in recorder.calls[4][1]
 
 
 def test_text_only_turn_skips_outputs(skill: VisBridgeSkill) -> None:
@@ -240,11 +241,12 @@ def test_outputs_contains_accumulated_tool_calls(skill: VisBridgeSkill) -> None:
 
     outputs_call = recorder.calls[-1]
     assert outputs_call[0].endswith("/vis/outputs")
-    tool_calls = outputs_call[1]["result"]["tool_calls"]
+    tool_calls = outputs_call[1]["tool_calls"]
     assert len(tool_calls) == 2
     assert tool_calls[0]["name"] == "wave"
     assert tool_calls[1]["name"] == "execute_nl_task"
-    assert "content" not in outputs_call[1]["result"]
+    assert "content" not in outputs_call[1]
+    assert "result" not in outputs_call[1]
 
 
 def test_non_ai_agent_message_is_ignored(skill: VisBridgeSkill) -> None:

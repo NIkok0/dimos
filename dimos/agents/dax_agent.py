@@ -47,8 +47,6 @@ dax_agent = autoconnect(
     VisBridgeSkill.blueprint(),
     McpServer.blueprint(),
     McpClient.blueprint(model=_agent_model, system_prompt=DAX_AGENT_SYSTEM_PROMPT),
-).global_config(
-    mcp_tool_allowlist="execute_nl_task,wave,head_accept,head_reject",
 )
 
 __all__ = ["dax_agent"]

@@ -27,6 +27,7 @@ from typing import Any, Literal, Protocol
 
 from dimos.agents.skill_result import SkillResult
 from dimos.agents.robot_action_catalog import (
+    GO_HOME,
     MOVE_RELATIVE,
     MOVE_TO_WORKSPACE,
     VLA_DROP_SKU,
@@ -48,7 +49,7 @@ from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
 
-ActionExecutorName = Literal["sys_navigation", "vla", "ros_action"]
+ActionExecutorName = Literal["sys_navigation", "vla", "ros_action", "dax"]
 ActionPlanError = VlaPickOrchestratorError | Literal["UNSUPPORTED_PLAN"]
 
 
@@ -248,6 +249,30 @@ class FetchSkuTemplate:
 RelocateSkuTemplate = FetchSkuTemplate
 
 
+class GoHomeTemplate:
+    """Compose a recovery task into one Dax go_home step."""
+
+    name = "go_home_template"
+    intent_type = "go_home"
+
+    def compose(self, intent: dict[str, Any]) -> ActionPlan:
+        """Build a single-step ActionPlan that returns the body to home pose."""
+        request_id = str(intent["request_id"])
+        return ActionPlan(
+            request_id=request_id,
+            intent_type=self.intent_type,
+            template=self.name,
+            steps=[
+                ActionStep(
+                    step_id="step-1",
+                    executor="dax",
+                    action_type=GO_HOME.name,
+                    args={},
+                )
+            ],
+        )
+
+
 class GuardLoopTemplate:
     """Compose a guard loop into a finite sequence of navigation waypoints."""
 
@@ -292,6 +317,12 @@ class GuardLoopTemplate:
             template=self.name,
             steps=steps,
         )
+
+
+class DaxSkillClient(Protocol):
+    """Protocol for Dax composite-skill calls used by the orchestrator."""
+
+    def go_home(self, *, request_id: str) -> SkillResult[Any]: ...
 
 
 class VlaActionClient(Protocol):
@@ -441,10 +472,12 @@ class ActionPlanOrchestrator:
         navigation: SysNavigationAdapter | None = None,
         vla_gateway: VlaActionGateway | None = None,
         ros_action: RosActionAdapter | None = None,
+        dax_skill: DaxSkillClient | None = None,
     ) -> None:
         self.navigation = navigation or MockSysNavigationAdapter()
         self._vla_gateway = vla_gateway or VlaActionGateway(MockVlaPickClient())
         self._ros_action = ros_action or MockRosActionAdapter()
+        self._dax_skill = dax_skill
 
     def run(self, intent: dict[str, Any], plan: ActionPlan) -> SkillResult[ActionPlanError]:
         """Execute a plan with failure-early gates between navigation, VLA, and ROS."""
@@ -463,6 +496,7 @@ class ActionPlanOrchestrator:
         navigation_results: list[dict[str, Any]] = []
         vla_results: list[dict[str, Any]] = []
         ros_results: list[dict[str, Any]] = []
+        dax_results: list[dict[str, Any]] = []
         step_metadata: dict[str, dict[str, Any]] = {}
 
         for step in plan.steps:
@@ -632,6 +666,70 @@ class ActionPlanOrchestrator:
                 )
                 continue
 
+            if step.executor == "dax":
+                if self._dax_skill is None:
+                    return _fail(
+                        "UNSUPPORTED_PLAN",
+                        "Dax skill adapter is not configured (set DAX_SKILL_ADAPTER).",
+                        intent=intent,
+                        action_plan=plan.to_dict(),
+                        step=step.to_dict(),
+                    )
+                if step.action_type != GO_HOME.name:
+                    return _fail(
+                        "UNSUPPORTED_PLAN",
+                        f"Unknown dax action_type {step.action_type!r}.",
+                        intent=intent,
+                        action_plan=plan.to_dict(),
+                        step=step.to_dict(),
+                    )
+                dax_result = self._dax_skill.go_home(request_id=plan.request_id)
+                dax_results.append(_skill_result_to_dict(dax_result))
+                if not dax_result.success:
+                    logger.info(
+                        "ActionPlan Dax step failed",
+                        trace_layer="action_plan",
+                        trace_stage="dax_failed",
+                        request_id=plan.request_id,
+                        step_id=step.step_id,
+                        executor=step.executor,
+                        action_type=step.action_type,
+                        phase=step.action_type,
+                        error_code=dax_result.error_code,
+                        message=dax_result.message,
+                        dax_result=_skill_result_to_dict(dax_result),
+                    )
+                    return SkillResult(
+                        success=False,
+                        error_code=dax_result.error_code,  # type: ignore[arg-type]
+                        message=dax_result.message,
+                        metadata={
+                            "intent": intent,
+                            "action_plan": plan.to_dict(),
+                            "phase": step.action_type,
+                            "step": step.to_dict(),
+                            "navigation_results": navigation_results,
+                            "vla_results": vla_results,
+                            "ros_results": ros_results,
+                            "dax_results": dax_results,
+                            **dax_result.metadata,
+                        },
+                    )
+                completed_steps.append(step.step_id)
+                step_metadata[step.step_id] = dict(dax_result.metadata)
+                logger.info(
+                    "ActionPlan Dax step completed",
+                    trace_layer="action_plan",
+                    trace_stage="dax_completed",
+                    request_id=plan.request_id,
+                    step_id=step.step_id,
+                    executor=step.executor,
+                    action_type=step.action_type,
+                    phase=step.action_type,
+                    dax_result=_skill_result_to_dict(dax_result),
+                )
+                continue
+
             logger.info(
                 "ActionPlan unsupported executor",
                 trace_layer="action_plan",
@@ -661,6 +759,7 @@ class ActionPlanOrchestrator:
             navigation_results=navigation_results,
             vla_results=vla_results,
             ros_results=ros_results,
+            dax_results=dax_results,
         )
         return SkillResult.ok(
             "Action plan completed successfully.",
@@ -671,6 +770,7 @@ class ActionPlanOrchestrator:
             navigation_results=navigation_results,
             vla_results=vla_results,
             ros_results=ros_results,
+            dax_results=dax_results,
             validation_passed=True,
         )
 
@@ -858,7 +958,9 @@ __all__ = [
     "ActionPlanOrchestrator",
     "ActionStep",
     "DaxPlaceInputResolver",
+    "DaxSkillClient",
     "FetchSkuTemplate",
+    "GoHomeTemplate",
     "GuardLoopTemplate",
     "HeldObjectState",
     "MoveRelativeTemplate",

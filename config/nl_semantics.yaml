@@ -33,6 +33,10 @@ intents:
     required_slots: [waypoints, loop_count]
     description: Patrol between multiple waypoints
     llm_slots: [waypoints, loop_count, patrol_speed]
+  go_home:
+    required_slots: []
+    description: Return the robot upper body to a known home pose for recovery or setup
+    llm_slots: []
 
 pick:
   terms:

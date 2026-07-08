@@ -69,7 +69,19 @@ class VisHandler(BaseHTTPRequestHandler):
         if path == "/vis/thoughts":
             sid = str(body.get("session_id", ""))
             seq = body.get("seq")
-            content = str(body.get("content", ""))
+            think = body.get("think")
+            result = body.get("result")
+            legacy_content = body.get("content")
+            payload_text = (
+                str(think)
+                if think is not None
+                else str(result)
+                if result is not None
+                else str(legacy_content or "")
+            )
+            if think is None and result is None and legacy_content is None:
+                self._send(400, {"code": 40000, "message": "think or result required"})
+                return
             sess = VisHandler.sessions.get(sid)
             if sess is None:
                 self._send(404, {"code": 40400, "message": "session not found"})
@@ -85,23 +97,30 @@ class VisHandler(BaseHTTPRequestHandler):
                 # duplicate seq
                 for s, c in sess.thoughts:
                     if s == seq:
-                        if c == content:
+                        if c == payload_text:
                             self._send(200, {"session_id": sid, "received_seq": seq})
                             return
-                        self._send(409, {"code": 40900, "message": "content conflict"})
+                        self._send(409, {"code": 40900, "message": "payload conflict"})
                         return
             if seq != expected:
                 self._send(422, {"code": 42200, "message": "seq not continuous", "expected_seq": expected})
                 return
             sess.last_seq = seq
-            sess.thoughts.append((seq, content))
-            print(f"[{ts}] /vis/thoughts seq={seq} content={content[:60]!r}", flush=True)
+            sess.thoughts.append((seq, payload_text))
+            label = "think" if think is not None else "result" if result is not None else "content"
+            print(
+                f"[{ts}] /vis/thoughts seq={seq} {label}={payload_text[:60]!r}",
+                flush=True,
+            )
             self._send(200, {"session_id": sid, "received_seq": seq})
             return
 
         if path == "/vis/outputs":
             sid = str(body.get("session_id", ""))
-            result = body.get("result")
+            tool_calls = body.get("tool_calls")
+            if tool_calls is None:
+                legacy = body.get("result")
+                tool_calls = legacy.get("tool_calls") if isinstance(legacy, dict) else None
             sess = VisHandler.sessions.get(sid)
             if sess is None:
                 self._send(404, {"code": 40400, "message": "session not found"})
@@ -109,10 +128,10 @@ class VisHandler(BaseHTTPRequestHandler):
             if sess.closed:
                 self._send(409, {"code": 40900, "message": "already submitted"})
                 return
-            sess.output = result
+            sess.output = tool_calls
             sess.closed = True
-            preview = json.dumps(result, ensure_ascii=False)[:80] if result else ""
-            print(f"[{ts}] /vis/outputs result={preview}", flush=True)
+            preview = json.dumps(tool_calls, ensure_ascii=False)[:80] if tool_calls else ""
+            print(f"[{ts}] /vis/outputs tool_calls={preview}", flush=True)
             self._send(200, {"session_id": sid})
             return
 

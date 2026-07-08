@@ -62,7 +62,7 @@ class GlobalConfig(BaseSettings):
     nerf_speed: float = 1.0
     planner_robot_speed: float | None = None
     mcp_port: int = 9990
-    mcp_tool_allowlist: str = ""
+    mcp_tool_allowlist: str = "execute_nl_task,wave,head_accept,head_reject"
     build_native: bool = DEFAULT_BUILD_NATIVE
     dtop: bool = False
     obstacle_avoidance: bool = True
@@ -76,7 +76,7 @@ class GlobalConfig(BaseSettings):
     vla_pick_adapter: str = "py_rosbridge"
     vla_ros_adapter: str = "py_rosbridge"
     vla_sys_nav_adapter: str = "ros_topic"
-    rosbridge_grpc_target: str = "10.69.6.144:9091"
+    rosbridge_grpc_target: str = "127.0.0.1:9091"
     rosbridge_grpc_port: int = 9091
     rosbridge_ready_timeout_s: float = 10.0
     rosbridge_max_receive_mb: int = 64
@@ -125,19 +125,23 @@ class GlobalConfig(BaseSettings):
     vla_ros_arm_name: str = "left"
     vla_ros_pick_side: str = ""
     dax_skill_adapter: str = "disabled"
-    dax_skill_sdk_ws: str = "/home/miaoli/Projects/dax_planner_ws-main"
-    dax_skill_composite_dir: str = (
-        "/home/miaoli/Projects/dax_planner_ws-main/"
-        "src/dax_skill_sdk/dax_skill_sdk/composite_skill"
-    )
+    dax_skill_sdk_ws: str = ""
+    dax_skill_composite_dir: str = ""
     dax_skill_runtime_config: str = "DaxBot_X7Pro.yaml"
     dax_skill_default_arm_name: str = "left"
     dax_skill_default_grasp_type: str = "Default"
     dax_skill_dry_run: bool = True
     dax_skill_step_confirm: bool = False
     dax_skill_timeout_s: float = 30.0
-    dax_joint_server_url: str = "http://10.69.6.144:5000"
+    # inprocess = RuntimeContext in DimOS worker (needs rclpy + dax_rf_planner in same Python).
+    # subprocess = ros2 run via deploy/run_ros2_skill_executor.sh (recommended on dax-agent venv).
+    dax_skill_executor: str = "inprocess"
+    dax_skill_ros_setup: str = "/opt/ros/humble/setup.bash"
+    dax_skill_ros_executor_script: str = ""
+    dax_joint_server_url: str = "http://127.0.0.1:5000"
     dax_joint_request_timeout_s: float = 30.0
+    # Per-robot wave/head joint poses (YAML). Empty = built-in X7Pro defaults only.
+    dax_robot_joint_config_path: str = "config/dax_robot_joint.yaml"
     # Path to the wave animation JSON ({"positions": [[7 floats], ...]}).
     # Empty = wave skill reports a configuration error when called.
     dax_wave_animation_path: str = ""
@@ -146,6 +150,8 @@ class GlobalConfig(BaseSettings):
     vis_bridge_url: str | None = None
     vis_bridge_timeout_s: float = 30.0
     vis_bridge_max_retries: int = 3
+    # 113 demo frontend expects legacy ``result.tool_calls``; use ``flat`` after frontend upgrade.
+    vis_bridge_outputs_format: str = "legacy"
 
     model_config = SettingsConfigDict(
         env_file=".env",

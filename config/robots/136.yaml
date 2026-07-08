@@ -1,0 +1,24 @@
+# Robot 136 (X7Pro) — copy of defaults; tune per calibration.
+# Set on robot: DAX_ROBOT_JOINT_CONFIG_PATH=config/robots/136.yaml
+
+wave:
+  home_left: [0.49968776484597655, 0.34976398209966364, 0.0, -1.4997614262387273, 0.0, -0.4497713482389387, 0.2]
+  home_right: [-1.11065948, -0.9408707, 0.0107924733, -2.14151549, -1.30853546, 0.09318465, -0.119986169]
+  rest_right: [0.49968776484597655, -0.34976398209966364, 0.0, -1.4997614262387273, 0.0, -0.4497713482389387, 0.2]
+  start_index: 150
+  send_count: 200
+  send_interval: 0.01
+  move_dt: 0.01
+
+head:
+  accept_steps:
+    - [0.0, 0.5]
+    - [0.0, 0.0]
+    - [0.0, 0.5]
+    - [0.0, 0.0]
+  reject_steps:
+    - [0.5, 0.0]
+    - [0.0, 0.0]
+    - [-0.5, 0.0]
+    - [0.0, 0.0]
+  time_from_start_s: 1.0

@@ -706,6 +706,10 @@ from dimos.agents.cli.nav_mcp_app import app as nav_mcp_app
 
 main.add_typer(nav_mcp_app, name="nav-mcp")
 
+from dimos.robot.cli.deploy_app import app as deploy_app
+
+main.add_typer(deploy_app, name="deploy")
+
 
 @main.command()
 def cameracalibrate(

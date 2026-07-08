@@ -31,9 +31,24 @@ gracefully (SIGTERM → SIGKILL after 5s is handled by the worker managers).
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 import signal
 import sys
 from typing import Any
+
+# DimOS modules call setup_logger() at import time. Ensure a writable log dir
+# before any ``dimos`` import (systemd may leave /opt/dax-agent/logs root-owned).
+if not os.environ.get("DIMOS_RUN_LOG_DIR"):
+    _default_log_root = Path.home() / ".local" / "state" / "dimos" / "logs"
+    try:
+        _default_log_root.mkdir(parents=True, exist_ok=True)
+        if os.access(_default_log_root, os.W_OK):
+            os.environ["DIMOS_RUN_LOG_DIR"] = str(_default_log_root)
+    except OSError:
+        _fallback = Path("/tmp/dimos-agent-logs")
+        _fallback.mkdir(parents=True, exist_ok=True)
+        os.environ["DIMOS_RUN_LOG_DIR"] = str(_fallback)
 
 from dotenv import load_dotenv
 

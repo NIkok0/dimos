@@ -396,6 +396,11 @@ def _default_intents() -> dict[str, IntentSpec]:
             description="Patrol between waypoints",
             llm_slots=("waypoints", "loop_count", "patrol_speed"),
         ),
+        "go_home": IntentSpec(
+            required_slots=(),
+            description="Return the robot upper body to home pose",
+            llm_slots=(),
+        ),
     }
 
 
@@ -407,8 +412,8 @@ def _parse_intents(raw: Any) -> dict[str, IntentSpec]:
         if not isinstance(spec, dict):
             raise ValueError(f"intent {name!r} must be a mapping")
         required = spec.get("required_slots", [])
-        if not isinstance(required, list) or not required:
-            raise ValueError(f"intent {name!r} required_slots must be a non-empty list")
+        if not isinstance(required, list):
+            raise ValueError(f"intent {name!r} required_slots must be a list")
         llm_slots_raw = spec.get("llm_slots", [])
         llm_slots = tuple(str(s) for s in llm_slots_raw) if isinstance(llm_slots_raw, list) else ()
         intents[str(name)] = IntentSpec(

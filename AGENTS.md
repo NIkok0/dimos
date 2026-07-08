@@ -145,6 +145,11 @@ docs/
 
 If you are a coding agent working on this dimos codebase, our coding agent focused docs are at `docs/coding-agents/index.md`
 
+**Workflow (required):** See `.cursor/rules/dev-workflow-cn.mdc`
+
+1. **需求确认**：实现类需求先回复「需求理解确认」，用户确认后再改代码。
+2. **中文说明**：仅 **新建文件 / 新类**（及新类内 public 方法）须写简短中文 docstring；改旧文件不强制补全。`@skill` 给 LLM 的 description 仍用英文。
+
 ---
 
 ## Architecture

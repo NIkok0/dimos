@@ -112,7 +112,17 @@ def make_action_plan_orchestrator(config: GlobalConfig | None = None) -> ActionP
         navigation=make_sys_navigation_adapter(cfg, session=session),
         vla_gateway=make_vla_action_gateway(cfg, session=session),
         ros_action=make_ros_action_adapter(cfg, session=session),
+        dax_skill=_make_dax_skill_client(cfg),
     )
+
+
+def _make_dax_skill_client(cfg: GlobalConfig) -> DaxSkillSdkAdapter | None:
+    dax_mode = cfg.dax_skill_adapter.strip().lower()
+    if dax_mode in {"disabled", "off", "none", ""}:
+        return None
+    if dax_mode in {"dry_run", "local", "dax"}:
+        return DaxSkillSdkAdapter.from_config(cfg)
+    raise ValueError(f"unsupported dax_skill_adapter {cfg.dax_skill_adapter!r}")
 
 
 def _uses_rosbridge(cfg: GlobalConfig) -> bool:

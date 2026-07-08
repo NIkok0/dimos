@@ -17,10 +17,14 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
 from dimos.agents.annotation import skill
+from dimos.agents.dax_robot_joint_config import (
+    DaxRobotJointConfig,
+    default_dax_robot_joint_config,
+    load_dax_robot_joint_config_from_env,
+)
 from dimos.agents.skills.dax_joint_request_client import DaxJointRequestClient
 from dimos.core.core import rpc
 from dimos.core.global_config import global_config
@@ -29,56 +33,14 @@ from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
 
-# [head_joint0, head_joint1] waypoints for impossible-task refusal (reject).
-HEAD_REJECT_STEPS: list[list[float]] = [
-    [0.5, 0.0],
-    [0.0, 0.0],
-    [-0.5, 0.0],
-    [0.0, 0.0],
-]
+# Backward-compatible module constants (defaults for tests / imports).
+_DEFAULTS = default_dax_robot_joint_config()
+HEAD_REJECT_STEPS: list[list[float]] = [list(s) for s in _DEFAULTS.head.reject_steps]
+HEAD_ACCEPT_STEPS: list[list[float]] = [list(s) for s in _DEFAULTS.head.accept_steps]
+WAVE_HOME_LEFT: list[float] = list(_DEFAULTS.wave.home_left)
+WAVE_HOME_RIGHT: list[float] = list(_DEFAULTS.wave.home_right)
+WAVE_REST_RIGHT: list[float] = list(_DEFAULTS.wave.rest_right)
 
-# [head_joint0, head_joint1] waypoints for obedience acknowledgment (accept).
-HEAD_ACCEPT_STEPS: list[list[float]] = [
-    [0.0, 0.5],
-    [0.0, 0.0],
-    [0.0, 0.5],
-    [0.0, 0.0],
-]
-
-# 7-DOF arm poses for the wave animation (mirrored from scripts/robot_arm_move.py).
-WAVE_HOME_LEFT: list[float] = [
-    0.49968776484597655,
-    0.34976398209966364,
-    0.0,
-    -1.4997614262387273,
-    0.0,
-    -0.4497713482389387,
-    0.2,
-]
-WAVE_HOME_RIGHT: list[float] = [
-    -1.11065948,
-    -0.9408707,
-    0.0107924733,
-    -2.14151549,
-    -1.30853546,
-    0.09318465,
-    -0.119986169,
-]
-WAVE_REST_RIGHT: list[float] = [
-    0.49968776484597655,
-    -0.34976398209966364,
-    0.0,
-    -1.4997614262387273,
-    0.0,
-    -0.4497713482389387,
-    0.2,
-]
-
-_DEFAULT_WAVE_START_INDEX = 150
-_DEFAULT_WAVE_SEND_COUNT = 200
-_DEFAULT_WAVE_SEND_INTERVAL = 0.01
-
-# Chinese labels + success lines for head gestures (keyed by gesture_name).
 _HEAD_GESTURE_LABEL: dict[str, str] = {"accept": "点头", "reject": "摇头"}
 _HEAD_GESTURE_SUCCESS: dict[str, str] = {
     "accept": "好的，我点了一下头",
@@ -89,6 +51,7 @@ _HEAD_CLIENT_NOT_READY = "抱歉，机械臂服务还没连上，没法做头部
 
 class DaxJointControlSkill(Module):
     _client: DaxJointRequestClient | None = None
+    _joint_config: DaxRobotJointConfig | None = None
 
     @rpc
     def start(self) -> None:
@@ -98,14 +61,25 @@ class DaxJointControlSkill(Module):
             url=cfg.dax_joint_server_url,
             timeout=cfg.dax_joint_request_timeout_s,
         )
-        logger.info("DaxJointControlSkill connected to %s", cfg.dax_joint_server_url)
+        self._joint_config = load_dax_robot_joint_config_from_env(cfg.dax_robot_joint_config_path)
+        logger.info(
+            "DaxJointControlSkill connected to %s joint_config=%s",
+            cfg.dax_joint_server_url,
+            cfg.dax_robot_joint_config_path or "(defaults)",
+        )
 
     @rpc
     def stop(self) -> None:
         if self._client is not None:
             self._client.close()
             self._client = None
+        self._joint_config = None
         super().stop()
+
+    def _joint_config_or_default(self) -> DaxRobotJointConfig:
+        if self._joint_config is not None:
+            return self._joint_config
+        return default_dax_robot_joint_config()
 
     def _run_head_sequence(
         self,
@@ -130,11 +104,7 @@ class DaxJointControlSkill(Module):
         )
 
     def _load_wave_positions(self) -> list[list[float]] | str:
-        """Load the wave keyframe JSON configured in GlobalConfig.
-
-        Returns the positions list on success, or a Chinese error string when
-        the path is unset, the file is missing, or the JSON is malformed.
-        """
+        """Load the wave keyframe JSON configured in GlobalConfig."""
         path_str = global_config.dax_wave_animation_path
         if not path_str:
             return "抱歉，挥手动画文件没配置（需设置 DAX_WAVE_ANIMATION_PATH）"
@@ -159,78 +129,49 @@ class DaxJointControlSkill(Module):
         send_count: int,
         send_interval: float,
     ) -> str:
+        if self._client is None:
+            return "抱歉，挥手动作没能完成，机械臂服务可能没启动"
 
-        JSON_PATH = Path("/home/miaoli/Projects/dimos/scripts/dax_hi_ani.json")
-        START_INDEX = 150
-        SEND_COUNT = 200
-        SEND_INTERVAL = 0.01
-        cfg = self.config.g
-        client = DaxJointRequestClient(url=cfg.dax_joint_server_url,
-            timeout=cfg.dax_joint_request_timeout_s,)
-
-        # HOME
-        left_arm_positions = [
-            0.49968776484597655,
-            0.34976398209966364,
-            0.0,
-            -1.4997614262387273,
-            0.0,
-            -0.4497713482389387,
-            0.2,
-        ]
-
-        right_arm_positions = [-1.11065948, -0.9408707, 0.0107924733, -2.14151549, -1.30853546, 0.09318465, -0.119986169]
+        wave_cfg = self._joint_config_or_default().wave
+        end_index = min(start_index + send_count, len(positions))
+        selected_positions = positions[start_index:end_index]
+        if not selected_positions:
+            return "抱歉，挥手动画帧范围无效"
 
         try:
-            client.move_dual_joints(left_arm_positions, right_arm_positions, dt=0.01)
+            self._client.move_dual_joints(
+                wave_cfg.home_left,
+                wave_cfg.home_right,
+                dt=wave_cfg.move_dt,
+            )
         except Exception:
             logger.exception("wave home failed")
             return "抱歉，挥手动作没能完成，机械臂服务可能没启动"
 
-        with JSON_PATH.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        positions = data["positions"]
-        selected_positions = positions[START_INDEX : START_INDEX + SEND_COUNT]
-
         logger.info(
             "wave frames total=%d range=%d..%d send=%d",
             len(positions),
-            START_INDEX,
-            START_INDEX + len(selected_positions) - 1,
+            start_index,
+            end_index - 1,
             len(selected_positions),
         )
 
-        for index, right_arm_positions in enumerate(selected_positions, start=START_INDEX):
+        import time
+
+        for index, right_arm_positions in enumerate(selected_positions, start=start_index):
             try:
-                client.servo_dual_joints(left_arm_positions, right_arm_positions)
+                self._client.servo_dual_joints(wave_cfg.home_left, right_arm_positions)
             except Exception:
                 logger.exception("wave servo failed at index %s", index)
                 return "抱歉，挥手动作没能完成，机械臂服务可能没启动"
-            time.sleep(SEND_INTERVAL)
-
-
-        left_arm_positions = [
-            0.49968776484597655,
-            0.34976398209966364,
-            0.0,
-            -1.4997614262387273,
-            0.0,
-            -0.4497713482389387,
-            0.2,
-        ]
-
-        right_arm_positions = [
-            0.49968776484597655,
-            -0.34976398209966364,
-            0.0,
-            -1.4997614262387273,
-            0.0,
-            -0.4497713482389387,
-            0.2,]
+            time.sleep(send_interval)
 
         try:
-            client.move_dual_joints(left_arm_positions, right_arm_positions, dt=0.01)
+            self._client.move_dual_joints(
+                wave_cfg.home_left,
+                wave_cfg.rest_right,
+                dt=wave_cfg.move_dt,
+            )
         except Exception:
             logger.exception("wave rest failed")
             return "抱歉，挥手动作没能完成，机械臂服务可能没启动"
@@ -238,17 +179,17 @@ class DaxJointControlSkill(Module):
         logger.info(
             "wave streamed %d frames (%d..%d)",
             len(selected_positions),
-            START_INDEX,
-            START_INDEX + len(selected_positions) - 1,
+            start_index,
+            end_index - 1,
         )
         return "你好！我跟你挥了挥手"
 
     @skill
     def wave(
         self,
-        start_index: int = _DEFAULT_WAVE_START_INDEX,
-        send_count: int = _DEFAULT_WAVE_SEND_COUNT,
-        send_interval: float = _DEFAULT_WAVE_SEND_INTERVAL,
+        start_index: int | None = None,
+        send_count: int | None = None,
+        send_interval: float | None = None,
     ) -> str:
         """Make the robot wave its right arm.
 
@@ -257,55 +198,63 @@ class DaxJointControlSkill(Module):
         or placing tasks, use `execute_nl_task` instead.
 
         Args:
-            start_index: Animation frame to start from. Usually keep the default.
-            send_count: Number of animation frames to send. Usually keep the default.
-            send_interval: Seconds between frames. Usually keep the default.
+            start_index: Animation frame to start from. Omit to use robot config default.
+            send_count: Number of animation frames to send. Omit to use robot config default.
+            send_interval: Seconds between frames. Omit to use robot config default.
         """
+        wave_cfg = self._joint_config_or_default().wave
         loaded = self._load_wave_positions()
         if isinstance(loaded, str):
             return loaded
         return self._run_wave_sequence(
             loaded,
-            start_index=start_index,
-            send_count=send_count,
-            send_interval=send_interval,
+            start_index=start_index if start_index is not None else wave_cfg.start_index,
+            send_count=send_count if send_count is not None else wave_cfg.send_count,
+            send_interval=send_interval if send_interval is not None else wave_cfg.send_interval,
         )
 
     @skill
-    def head_reject(self, time_from_start: float = 1.0) -> str:
+    def head_reject(self, time_from_start: float | None = None) -> str:
         """Make the robot shake its head to reject a request.
 
-        Use this only when the user's request is clearly impossible, unsafe, or
-        outside the robot's abilities. Do not use this when the task is merely
-        unclear; ask the user a question instead. For complex robot tasks that
-        may be possible, use `execute_nl_task`.
+        Use this when routing would return ``unsupported_intent`` — the request
+        is clearly impossible, unsafe, or outside the robot's abilities. Do not
+        use when the task is ``need_clarification``; ask the user instead. For
+        tasks that may be possible, use ``execute_nl_task``.
 
         Args:
             time_from_start: Motion duration for each head waypoint in seconds.
-                Usually keep the default.
+                Omit to use robot config default.
         """
+        head_cfg = self._joint_config_or_default().head
         return self._run_head_sequence(
-            HEAD_REJECT_STEPS,
+            head_cfg.reject_steps,
             gesture_name="reject",
-            time_from_start=time_from_start,
+            time_from_start=time_from_start
+            if time_from_start is not None
+            else head_cfg.time_from_start_s,
         )
 
     @skill
-    def head_accept(self, time_from_start: float = 1.0) -> str:
-        """Make the robot nod to acknowledge the user.
+    def head_accept(self, time_from_start: float | None = None) -> str:
+        """Make the robot nod to acknowledge obedience.
 
-        Use this as a simple "I heard you" or "I will do that" gesture. This
-        does not mean the task has succeeded. For the actual navigation,
-        picking, carrying, or placing task, call `execute_nl_task`.
+        Call when the user gives a followable instruction (task, cancel, stop,
+        or change of plan). This is an obedience signal — it does not mean the
+        task succeeded. For navigation, picking, or placing, call
+        ``execute_nl_task``.
 
         Args:
             time_from_start: Motion duration for each head waypoint in seconds.
-                Usually keep the default.
+                Omit to use robot config default.
         """
+        head_cfg = self._joint_config_or_default().head
         return self._run_head_sequence(
-            HEAD_ACCEPT_STEPS,
+            head_cfg.accept_steps,
             gesture_name="accept",
-            time_from_start=time_from_start,
+            time_from_start=time_from_start
+            if time_from_start is not None
+            else head_cfg.time_from_start_s,
         )
 
 

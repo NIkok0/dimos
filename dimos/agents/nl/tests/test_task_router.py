@@ -76,9 +76,16 @@ class TestDefaultTaskRouteCatalog:
         assert pick is not None
         assert pick.name == "pick_sku"
 
-    def test_all_five_intents_registered(self) -> None:
+    def test_all_six_intents_registered(self) -> None:
         catalog = default_task_route_catalog()
-        for intent_type in ("move_relative", "move_to_workspace", "pick_sku", "fetch_sku", "guard_loop"):
+        for intent_type in (
+            "move_relative",
+            "move_to_workspace",
+            "pick_sku",
+            "fetch_sku",
+            "guard_loop",
+            "go_home",
+        ):
             assert catalog.get(intent_type) is not None, f"{intent_type} missing from catalog"
 
 
@@ -101,6 +108,7 @@ class TestComposeActionPlan:
                 },
             ),
             ("guard_loop", {"waypoints": [{"workspace_name": "table", "workspace_color": "blue"}, {"workspace_name": "table", "workspace_color": "red"}], "loop_count": 2}),
+            ("go_home", {}),
         ],
     )
     def test_known_templates_produce_action_plan(self, intent_type: str, slots: dict) -> None:

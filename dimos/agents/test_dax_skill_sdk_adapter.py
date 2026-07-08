@@ -414,3 +414,68 @@ def test_run_plan_calls_are_serialized_by_execution_lock(tmp_path) -> None:
         thread.join()
 
     assert max_active_count == 1
+
+
+def test_subprocess_go_home_success(tmp_path) -> None:
+    yaml_path = tmp_path / "go_home.yaml"
+    yaml_path.write_text("name: go_home\nsteps: []\n", encoding="utf-8")
+    script_path = tmp_path / "run_ros2.sh"
+    script_path.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+    script_path.chmod(0o755)
+    calls: list[list[str]] = []
+
+    def _fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(list(cmd))
+        class _Proc:
+            returncode = 0
+            stdout = "[executor] ok"
+            stderr = ""
+
+        return _Proc()
+
+    adapter = DaxSkillSdkAdapter(
+        composite_dir=str(tmp_path),
+        dry_run=False,
+        executor="subprocess",
+        ros_executor_script=str(script_path),
+        subprocess_runner=_fake_run,
+        load_plan_fn=lambda _path: _FakePlan(name="go_home", inputs={}),
+    )
+
+    result = adapter.go_home(request_id="req-sub")
+
+    assert result.success
+    assert calls
+    assert str(yaml_path) in calls[0]
+    assert "--no-confirm" in calls[0]
+    assert result.metadata["executor"] == "subprocess"
+    assert result.metadata["subprocess_exit_code"] == 0
+
+
+def test_subprocess_runtime_check_dry_run(tmp_path) -> None:
+    yaml_path = tmp_path / "go_home.yaml"
+    yaml_path.write_text("name: go_home\nsteps: []\n", encoding="utf-8")
+    script_path = tmp_path / "run_ros2.sh"
+    script_path.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+    script_path.chmod(0o755)
+
+    def _fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        assert "--dry-run" in cmd
+        class _Proc:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _Proc()
+
+    adapter = DaxSkillSdkAdapter(
+        composite_dir=str(tmp_path),
+        executor="subprocess",
+        ros_executor_script=str(script_path),
+        subprocess_runner=_fake_run,
+    )
+
+    result = adapter.check_runtime_ready(request_id="req-check")
+
+    assert result.success
+    assert result.metadata["phase"] == "runtime_ready"

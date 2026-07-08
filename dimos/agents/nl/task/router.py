@@ -22,6 +22,7 @@ from dimos.agents.skill_result import SkillResult
 from dimos.agents.task_action_plan import (
     ActionPlan,
     FetchSkuTemplate,
+    GoHomeTemplate,
     GuardLoopTemplate,
     MoveRelativeTemplate,
     MoveToWorkspaceTemplate,
@@ -45,6 +46,7 @@ RouteHandlerKey = Literal[
     "pick_sku",
     "fetch_sku",
     "guard_loop",
+    "go_home",
 ]
 
 RouteHandler = Callable[..., SkillResult[Any]]
@@ -334,6 +336,12 @@ _ROUTE_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "handler_name": "execute_guard_loop",
         "template_name": "guard_loop",
     },
+    {
+        "name": "go_home",
+        "intent_type": "go_home",
+        "handler_name": "execute_action_plan",
+        "template_name": "go_home",
+    },
 )
 
 
@@ -396,6 +404,8 @@ def compose_action_plan(intent: TaskIntent, route: SkillRoute) -> ActionPlan:
         return FetchSkuTemplate().compose(intent.to_dict())
     if route.template_name == "guard_loop":
         return GuardLoopTemplate().compose(intent.to_dict())
+    if route.template_name == "go_home":
+        return GoHomeTemplate().compose(intent.to_dict())
     raise ValueError(
         f"No ActionPlan template registered for route template {route.template_name!r}."
     )

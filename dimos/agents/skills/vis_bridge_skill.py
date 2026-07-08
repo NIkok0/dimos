@@ -17,8 +17,10 @@
 The frontend exposes a stop-and-wait REST protocol:
 
 - ``POST /vis/input``   — start a session, returns ``session_id``
-- ``POST /vis/thoughts`` — stream display text as ``content`` (``seq`` strictly increasing, ACK before next)
-- ``POST /vis/outputs``  — end-of-turn ``tool_calls`` JSON array (skipped when none)
+- ``POST /vis/thoughts`` — stream reasoning as ``think`` or agent reply as ``result`` (``seq`` strictly increasing, ACK before next)
+- ``POST /vis/outputs``  — ``tool_calls`` with ``status``: ``working`` after each
+  ``action`` think (single tool_call for that step), then ``completed`` or ``failed``
+  at end-of-turn (multiple POSTs per session)
 
 This module subscribes to the four DimOS LCM streams that ``McpClient`` publishes
 (``human_input``, ``agent_reasoning``, ``agent``, ``agent_idle``) and translates one
@@ -35,6 +37,7 @@ deployments are unaffected.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from queue import Queue
 from threading import Event, Thread
@@ -89,6 +92,7 @@ class VisBridgeSkill(Module):
         self._session_id: str | None = None
         self._seq: int = 0
         self._ai_tool_calls: list[dict[str, Any]] = []
+        self._turn_failed: bool = False
 
     @rpc
     def start(self) -> None:
@@ -171,21 +175,43 @@ class VisBridgeSkill(Module):
         self._session_id = session_id
         self._seq = 0
         self._ai_tool_calls = []
+        self._turn_failed = False
         logger.info("VisBridge session started", session_id=session_id, text_preview=text[:120])
 
     def _handle_reasoning(self, data: dict[str, Any]) -> None:
         if self._session_id is None:
             return
+        step_type = data.get("step_type")
+        if step_type == "plan":
+            return
+        if step_type == "observation":
+            content = str(data.get("content", ""))
+            if content:
+                self._mark_observation_failure(content)
+            return
         content = str(data.get("content", ""))
         if not content:
             return
         self._seq += 1
-        ok = self._post_vis_thoughts(self._session_id, self._seq, content)
+        ok = self._post_vis_thoughts(self._session_id, self._seq, think=content)
         if not ok:
             logger.error(
                 "VisBridge /vis/thoughts failed after retries; aborting session",
                 session_id=self._session_id,
                 seq=self._seq,
+            )
+            self._reset_session()
+            return
+        if step_type != "action":
+            return
+        tc = self._tool_call_from_action(data)
+        if tc is None:
+            return
+        ok = self._post_vis_outputs(self._session_id, [tc], status="working")
+        if not ok:
+            logger.error(
+                "VisBridge /vis/outputs (working) failed; aborting session",
+                session_id=self._session_id,
             )
             self._reset_session()
 
@@ -197,7 +223,7 @@ class VisBridgeSkill(Module):
         text = self._ai_message_text(msg)
         if text:
             self._seq += 1
-            ok = self._post_vis_thoughts(self._session_id, self._seq, text)
+            ok = self._post_vis_thoughts(self._session_id, self._seq, result=text)
             if not ok:
                 logger.error(
                     "VisBridge /vis/thoughts failed after retries; aborting session",
@@ -211,30 +237,32 @@ class VisBridgeSkill(Module):
     def _handle_idle(self) -> None:
         if self._session_id is None:
             return
-        if not self._ai_tool_calls:
-            logger.info(
-                "VisBridge session closed",
-                session_id=self._session_id,
-                tool_calls=0,
-            )
-            self._reset_session()
-            return
-        result: dict[str, Any] = {"tool_calls": self._ai_tool_calls}
-        ok = self._post_vis_outputs(self._session_id, result)
+        final_status = "failed" if self._turn_failed else "completed"
+        ok = self._post_vis_outputs(self._session_id, self._ai_tool_calls, status=final_status)
         if ok:
             logger.info(
                 "VisBridge session closed",
                 session_id=self._session_id,
+                status=final_status,
                 tool_calls=len(self._ai_tool_calls),
             )
         else:
-            logger.error("VisBridge /vis/outputs failed", session_id=self._session_id)
+            logger.error(
+                "VisBridge /vis/outputs failed",
+                session_id=self._session_id,
+                status=final_status,
+            )
         self._reset_session()
 
     def _reset_session(self) -> None:
         self._session_id = None
         self._seq = 0
         self._ai_tool_calls = []
+        self._turn_failed = False
+
+    def _mark_observation_failure(self, content: str) -> None:
+        if self._is_failed_observation(content):
+            self._turn_failed = True
 
     def _append_tool_calls(self, msg: AIMessage) -> None:
         seen = {tc.get("id") for tc in self._ai_tool_calls if tc.get("id")}
@@ -247,6 +275,42 @@ class VisBridgeSkill(Module):
             self._ai_tool_calls.append(tc)
 
     # --- HTTP calls (mockable in tests) -----------------------------------
+
+    @staticmethod
+    def _tool_call_from_action(data: dict[str, Any]) -> dict[str, Any] | None:
+        name = data.get("tool_name")
+        if not name:
+            return None
+        return {
+            "name": name,
+            "args": data.get("tool_args") or {},
+            "id": data.get("tool_call_id") or "",
+            "type": "tool_call",
+        }
+
+    @staticmethod
+    def _is_failed_observation(content: str) -> bool:
+        lowered = content.lower()
+        for marker in ("失败", "抱歉"):
+            if marker in content:
+                return True
+        for marker in ("error", "exception", "unable to", "timeout"):
+            if marker in lowered:
+                return True
+        stripped = content.strip()
+        if stripped.startswith("{"):
+            try:
+                obj = json.loads(stripped)
+            except (ValueError, TypeError):
+                return False
+            if isinstance(obj, dict):
+                if obj.get("success") is False:
+                    return True
+                if obj.get("status") == "failed":
+                    return True
+                if obj.get("error"):
+                    return True
+        return False
 
     @staticmethod
     def _normalize_tool_calls(msg: AIMessage) -> list[dict[str, Any]]:
@@ -291,15 +355,45 @@ class VisBridgeSkill(Module):
         session_id = resp.get("session_id")
         return str(session_id) if session_id else None
 
-    def _post_vis_thoughts(self, session_id: str, seq: int, content: str) -> bool:
+    def _post_vis_thoughts(
+        self,
+        session_id: str,
+        seq: int,
+        *,
+        think: str | None = None,
+        result: str | None = None,
+    ) -> bool:
         url = self._url("/vis/thoughts")
-        data = {"session_id": session_id, "seq": seq, "content": content}
+        data: dict[str, Any] = {"session_id": session_id, "seq": seq}
+        if think is not None:
+            data["think"] = think
+        if result is not None:
+            data["result"] = result
         resp = self._post_with_retry(url, data)
         return resp is not None
 
-    def _post_vis_outputs(self, session_id: str, result: dict[str, Any]) -> bool:
+    def _post_vis_outputs(
+        self,
+        session_id: str,
+        tool_calls: list[dict[str, Any]],
+        *,
+        status: str,
+    ) -> bool:
         url = self._url("/vis/outputs")
-        data = {"session_id": session_id, "result": result}
+        fmt = (global_config.vis_bridge_outputs_format or "legacy").lower()
+        tc_snapshot = [dict(tc) for tc in tool_calls]
+        if fmt == "flat":
+            data: dict[str, Any] = {
+                "session_id": session_id,
+                "tool_calls": tc_snapshot,
+                "status": status,
+            }
+        else:
+            data = {
+                "session_id": session_id,
+                "result": {"tool_calls": tc_snapshot},
+                "status": status,
+            }
         resp = self._post_with_retry(url, data)
         return resp is not None
 

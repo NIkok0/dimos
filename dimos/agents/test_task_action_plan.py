@@ -21,6 +21,7 @@ from dimos.agents.task_action_plan import (
     ActionPlanOrchestrator,
     ActionStep,
     DaxPlaceInputResolver,
+    GoHomeTemplate,
     GuardLoopTemplate,
     MoveRelativeTemplate,
     MoveToWorkspaceTemplate,
@@ -197,6 +198,7 @@ class RecordingVlaActionClient:
 class RecordingDaxAdapter:
     def __init__(self, result: SkillResult | None = None) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.home_calls: list[dict[str, Any]] = []
         self._result = result or SkillResult.ok(
             "dax place ok",
             composite_skill="place.yaml",
@@ -206,10 +208,20 @@ class RecordingDaxAdapter:
                 "target_name": "FODR0000000046",
             },
         )
+        self._home_result = SkillResult.ok(
+            "dax go_home ok",
+            sdk="dax_skill_sdk",
+            composite_skill="go_home.yaml",
+            inputs={},
+        )
 
     def place(self, **kwargs: Any) -> SkillResult:
         self.calls.append(kwargs)
         return self._result
+
+    def go_home(self, *, request_id: str) -> SkillResult:
+        self.home_calls.append({"request_id": request_id})
+        return self._home_result
 
 
 class SequencedNavigationAdapter:
@@ -309,6 +321,49 @@ def test_fetch_template_expands_to_move_pick_move_drop() -> None:
     assert plan.steps[3].args["workspace_color"] == "green"
 
 
+def _go_home_intent() -> dict[str, Any]:
+    return {
+        "request_id": "req-go-home-test",
+        "raw_instruction": "回零",
+        "intent_type": "go_home",
+        "slots": {},
+    }
+
+
+def test_go_home_template_expands_to_single_dax_step() -> None:
+    plan = GoHomeTemplate().compose(_go_home_intent())
+
+    assert plan.intent_type == "go_home"
+    assert plan.template == "go_home_template"
+    assert [step.executor for step in plan.steps] == ["dax"]
+    assert [step.action_type for step in plan.steps] == ["go_home"]
+    assert plan.steps[0].args == {}
+
+
+def test_go_home_orchestrator_calls_dax_adapter() -> None:
+    dax = RecordingDaxAdapter()
+    orchestrator = ActionPlanOrchestrator(dax_skill=dax)
+    plan = GoHomeTemplate().compose(_go_home_intent())
+
+    result = orchestrator.run(_go_home_intent(), plan)
+
+    assert result.success
+    assert dax.home_calls == [{"request_id": "req-go-home-test"}]
+    assert dax.calls == []
+    assert result.metadata["dax_results"][0]["success"] is True
+
+
+def test_go_home_without_dax_adapter_returns_unsupported_plan() -> None:
+    orchestrator = ActionPlanOrchestrator()
+    plan = GoHomeTemplate().compose(_go_home_intent())
+
+    result = orchestrator.run(_go_home_intent(), plan)
+
+    assert not result.success
+    assert result.error_code == "UNSUPPORTED_PLAN"
+    assert "DAX_SKILL_ADAPTER" in result.message
+
+
 def test_action_plan_templates_only_emit_cataloged_actions() -> None:
     plans = [
         MoveToWorkspaceTemplate().compose(_move_intent()),
@@ -316,6 +371,7 @@ def test_action_plan_templates_only_emit_cataloged_actions() -> None:
         PickSkuTemplate().compose(_pick_intent()),
         FetchSkuTemplate().compose(_fetch_intent()),
         GuardLoopTemplate().compose(_guard_intent()),
+        GoHomeTemplate().compose(_go_home_intent()),
     ]
 
     for plan in plans:

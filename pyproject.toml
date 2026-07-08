@@ -357,8 +357,12 @@ dax-agent = [
     "protobuf>=3.21",
     # HTTP client
     "requests",
-    # workspace YAML for ros_topic navigation
+    # workspace YAML for ros_topic navigation + dax_skill_sdk composite skills
     "pyyaml>=6.0",
+    # dax_skill_sdk atomic skills (yaml_loader registers cartesian_line → scipy)
+    "scipy>=1.11.0",
+    # deploy subcommands (dimos deploy init-git / pull)
+    "typer>=0.19.2,<1",
 ]
 
 base = [
