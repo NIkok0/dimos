@@ -152,14 +152,6 @@ class DaxSkillSdkAdapter:
             request_id=request_id,
         )
 
-    def go_home(self, *, request_id: str) -> SkillResult[DaxSkillError]:
-        """Run ``go_home.yaml`` to return the Dax-controlled body to home pose."""
-        return self.run_composite_skill(
-            yaml_name="go_home.yaml",
-            inputs={},
-            request_id=request_id,
-        )
-
     def run_composite_skill(
         self,
         *,
@@ -340,7 +332,7 @@ class DaxSkillSdkAdapter:
 
     def _check_subprocess_runtime(self) -> SkillResult[DaxSkillError]:
         """Verify ros2 skill_executor --dry-run works in the ROS subprocess wrapper."""
-        yaml_path = self._resolve_yaml_path("go_home.yaml")
+        yaml_path = self._resolve_yaml_path("place.yaml")
         if not yaml_path.is_file():
             return SkillResult(
                 success=False,
@@ -348,8 +340,13 @@ class DaxSkillSdkAdapter:
                 message=f"Dax composite YAML not found: {yaml_path}",
                 metadata={"yaml_path": str(yaml_path)},
             )
+        probe_inputs = {
+            "arm_name": self._default_arm_name,
+            "grasp_type": self._default_grasp_type,
+            "target_name": "dry_run_probe",
+        }
         try:
-            cmd = self._build_subprocess_cmd(yaml_path, {}, dry_run=True)
+            cmd = self._build_subprocess_cmd(yaml_path, probe_inputs, dry_run=True)
         except FileNotFoundError as exc:
             return SkillResult(
                 success=False,

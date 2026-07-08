@@ -87,24 +87,6 @@ def test_dry_run_place_loads_yaml_and_returns_inputs(tmp_path) -> None:
     }
 
 
-def test_go_home_dry_run_uses_go_home_yaml_without_inputs(tmp_path) -> None:
-    yaml_path = tmp_path / "go_home.yaml"
-    yaml_path.write_text("name: go_home\nsteps: []\n", encoding="utf-8")
-    loaded_paths: list[str] = []
-
-    adapter = DaxSkillSdkAdapter(
-        composite_dir=str(tmp_path),
-        dry_run=True,
-        load_plan_fn=lambda path: loaded_paths.append(path) or _FakePlan(name="go_home", inputs={}),
-    )
-
-    result = adapter.go_home(request_id="req-home")
-
-    assert result.success
-    assert loaded_paths == [str(yaml_path)]
-    assert result.metadata["composite_skill"] == "go_home.yaml"
-    assert result.metadata["inputs"] == {}
-
 
 def test_missing_yaml_returns_plan_load_failed(tmp_path) -> None:
     adapter = DaxSkillSdkAdapter(composite_dir=str(tmp_path), dry_run=True)
@@ -299,30 +281,35 @@ def test_run_plan_success_metadata_is_traceable(tmp_path) -> None:
 
 
 def test_run_plan_receives_step_confirm_flag(tmp_path) -> None:
-    (tmp_path / "go_home.yaml").write_text("name: go_home\nsteps: []\n", encoding="utf-8")
+    (tmp_path / "place.yaml").write_text("name: place_90\nsteps: []\n", encoding="utf-8")
     captured: dict[str, Any] = {}
 
     def _run_plan(_plan: Any, _ctx: Any, _inputs: dict[str, Any], step_confirm: bool = False):
         captured["step_confirm"] = step_confirm
-        return [_FakeDaxResult(True, "home")]
+        return [_FakeDaxResult(True, "placed")]
 
     adapter = DaxSkillSdkAdapter(
         composite_dir=str(tmp_path),
         dry_run=False,
         step_confirm=True,
         runtime_factory=lambda _config: _FakeRuntime(),
-        load_plan_fn=lambda _path: _FakePlan(name="go_home", inputs={}),
+        load_plan_fn=lambda _path: _FakePlan(),
         run_plan_fn=_run_plan,
     )
 
-    result = adapter.go_home(request_id="req-home")
+    result = adapter.place(
+        request_id="req-place",
+        arm_name="left",
+        grasp_type="Default",
+        target_name="FODR0000000046",
+    )
 
     assert result.success
     assert captured == {"step_confirm": True}
 
 
 def test_run_plan_timeout_maps_to_execution_timeout(tmp_path) -> None:
-    (tmp_path / "go_home.yaml").write_text("name: go_home\nsteps: []\n", encoding="utf-8")
+    (tmp_path / "place.yaml").write_text("name: place_90\nsteps: []\n", encoding="utf-8")
 
     def _slow_run_plan(_plan: Any, _ctx: Any, _inputs: dict[str, Any], step_confirm: bool = False):
         time.sleep(0.03)
@@ -333,16 +320,21 @@ def test_run_plan_timeout_maps_to_execution_timeout(tmp_path) -> None:
         dry_run=False,
         timeout_s=0.01,
         runtime_factory=lambda _config: _FakeRuntime(),
-        load_plan_fn=lambda _path: _FakePlan(name="go_home", inputs={}),
+        load_plan_fn=lambda _path: _FakePlan(),
         run_plan_fn=_slow_run_plan,
     )
 
-    result = adapter.go_home(request_id="req-timeout")
+    result = adapter.place(
+        request_id="req-timeout",
+        arm_name="left",
+        grasp_type="Default",
+        target_name="FODR0000000046",
+    )
 
     assert not result.success
     assert result.error_code == "DAX_EXECUTION_TIMEOUT"
     assert result.metadata["phase"] == "dax_run_plan"
-    assert result.metadata["composite_skill"] == "go_home.yaml"
+    assert result.metadata["composite_skill"] == "place.yaml"
 
 
 def test_check_runtime_ready_reports_ready_runtime() -> None:
@@ -384,7 +376,7 @@ def test_runtime_setup_failure_returns_runtime_not_ready(tmp_path) -> None:
 
 
 def test_run_plan_calls_are_serialized_by_execution_lock(tmp_path) -> None:
-    (tmp_path / "go_home.yaml").write_text("name: go_home\nsteps: []\n", encoding="utf-8")
+    (tmp_path / "place.yaml").write_text("name: place_90\nsteps: []\n", encoding="utf-8")
     active_count = 0
     max_active_count = 0
     counter_lock = threading.Lock()
@@ -403,11 +395,19 @@ def test_run_plan_calls_are_serialized_by_execution_lock(tmp_path) -> None:
         composite_dir=str(tmp_path),
         dry_run=False,
         runtime_factory=lambda _config: _FakeRuntime(),
-        load_plan_fn=lambda _path: _FakePlan(name="go_home", inputs={}),
+        load_plan_fn=lambda _path: _FakePlan(),
         run_plan_fn=_run_plan,
     )
 
-    threads = [threading.Thread(target=adapter.go_home, kwargs={"request_id": f"req-{i}"}) for i in range(2)]
+    def _place(request_id: str) -> None:
+        adapter.place(
+            request_id=request_id,
+            arm_name="left",
+            grasp_type="Default",
+            target_name="FODR0000000046",
+        )
+
+    threads = [threading.Thread(target=_place, args=(f"req-{i}",)) for i in range(2)]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -416,9 +416,9 @@ def test_run_plan_calls_are_serialized_by_execution_lock(tmp_path) -> None:
     assert max_active_count == 1
 
 
-def test_subprocess_go_home_success(tmp_path) -> None:
-    yaml_path = tmp_path / "go_home.yaml"
-    yaml_path.write_text("name: go_home\nsteps: []\n", encoding="utf-8")
+def test_subprocess_place_success(tmp_path) -> None:
+    yaml_path = tmp_path / "place.yaml"
+    yaml_path.write_text("name: place_90\nsteps: []\n", encoding="utf-8")
     script_path = tmp_path / "run_ros2.sh"
     script_path.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
     script_path.chmod(0o755)
@@ -439,10 +439,15 @@ def test_subprocess_go_home_success(tmp_path) -> None:
         executor="subprocess",
         ros_executor_script=str(script_path),
         subprocess_runner=_fake_run,
-        load_plan_fn=lambda _path: _FakePlan(name="go_home", inputs={}),
+        load_plan_fn=lambda _path: _FakePlan(),
     )
 
-    result = adapter.go_home(request_id="req-sub")
+    result = adapter.place(
+        request_id="req-sub",
+        arm_name="left",
+        grasp_type="Default",
+        target_name="FODR0000000046",
+    )
 
     assert result.success
     assert calls
@@ -453,8 +458,8 @@ def test_subprocess_go_home_success(tmp_path) -> None:
 
 
 def test_subprocess_runtime_check_dry_run(tmp_path) -> None:
-    yaml_path = tmp_path / "go_home.yaml"
-    yaml_path.write_text("name: go_home\nsteps: []\n", encoding="utf-8")
+    yaml_path = tmp_path / "place.yaml"
+    yaml_path.write_text("name: place_90\nsteps: []\n", encoding="utf-8")
     script_path = tmp_path / "run_ros2.sh"
     script_path.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
     script_path.chmod(0o755)

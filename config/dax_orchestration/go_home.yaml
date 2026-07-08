@@ -1,0 +1,7 @@
+steps:
+  - name: go_home_body_dual
+    skill: joint_move
+    params:
+      group: body_dual
+      target: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      dt: 0.01

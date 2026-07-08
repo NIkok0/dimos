@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from dimos.agents.dax_orchestration.go_home import DaxGoHomeClient
 from dimos.agents.dax_skill_sdk_adapter import DaxDropVlaActionClient, DaxSkillSdkAdapter
 from dimos.agents.rosbridge.navigation.adapter import PyRosbridgeSysNavigationAdapter
 from dimos.agents.rosbridge.navigation.client import PyRosbridgeNavigationRosClient
@@ -116,12 +117,12 @@ def make_action_plan_orchestrator(config: GlobalConfig | None = None) -> ActionP
     )
 
 
-def _make_dax_skill_client(cfg: GlobalConfig) -> DaxSkillSdkAdapter | None:
+def _make_dax_skill_client(cfg: GlobalConfig) -> DaxGoHomeClient | None:
     dax_mode = cfg.dax_skill_adapter.strip().lower()
     if dax_mode in {"disabled", "off", "none", ""}:
         return None
     if dax_mode in {"dry_run", "local", "dax"}:
-        return DaxSkillSdkAdapter.from_config(cfg)
+        return DaxGoHomeClient.from_config(cfg)
     raise ValueError(f"unsupported dax_skill_adapter {cfg.dax_skill_adapter!r}")
 
 

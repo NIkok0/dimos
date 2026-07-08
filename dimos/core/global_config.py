@@ -138,6 +138,14 @@ class GlobalConfig(BaseSettings):
     dax_skill_executor: str = "inprocess"
     dax_skill_ros_setup: str = "/opt/ros/humble/setup.bash"
     dax_skill_ros_executor_script: str = ""
+    # Atomic skill Action Server (execute_atomic_skill). go_home uses this path.
+    dax_atomic_skill_executor: str = "subprocess"
+    dax_atomic_skill_ws: str = ""
+    dax_atomic_skill_ros_setup: str = "/opt/ros/humble/setup.bash"
+    dax_atomic_skill_invoke_script: str = ""
+    dax_atomic_skill_timeout_s: float = 120.0
+    dax_atomic_skill_dry_run: bool = False
+    dax_orchestration_go_home_path: str = "config/dax_orchestration/go_home.yaml"
     dax_joint_server_url: str = "http://127.0.0.1:5000"
     dax_joint_request_timeout_s: float = 30.0
     # Per-robot wave/head joint poses (YAML). Empty = built-in X7Pro defaults only.

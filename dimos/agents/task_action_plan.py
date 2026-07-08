@@ -320,7 +320,7 @@ class GuardLoopTemplate:
 
 
 class DaxSkillClient(Protocol):
-    """Protocol for Dax composite-skill calls used by the orchestrator."""
+    """Protocol for Dax go_home orchestration used by the action plan runner."""
 
     def go_home(self, *, request_id: str) -> SkillResult[Any]: ...
 

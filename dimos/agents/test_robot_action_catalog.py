@@ -79,13 +79,13 @@ def test_vla_drop_sku_maps_to_dax_place_yaml() -> None:
     assert "validated_payload" not in spec.metadata_keys
 
 
-def test_go_home_maps_to_dax_recovery_yaml() -> None:
+def test_go_home_maps_to_atomic_orchestrator() -> None:
     spec = require_robot_action_spec("go_home")
 
     assert spec.executor == "dax"
     assert spec.backend == "dax_skill_sdk"
-    assert spec.adapter == "DaxSkillSdkAdapter.go_home"
-    assert spec.yaml_name == "go_home.yaml"
+    assert spec.adapter == "GoHomeOrchestrator.run"
+    assert spec.yaml_name == ""
     assert spec.required_slots == ()
     assert "manual_or_recovery_only" in spec.safety_gates
 

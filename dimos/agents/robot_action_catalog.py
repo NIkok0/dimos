@@ -167,18 +167,18 @@ GO_HOME = RobotActionSpec(
     executor="dax",
     backend="dax_skill_sdk",
     required_slots=(),
-    adapter="DaxSkillSdkAdapter.go_home",
-    yaml_name="go_home.yaml",
+    adapter="GoHomeOrchestrator.run",
+    yaml_name="",
     safety_gates=(
         "manual_or_recovery_only",
         "runtime_ready",
     ),
     metadata_keys=(
         "sdk",
-        "composite_skill",
-        "inputs",
-        "dax_results",
+        "orchestrator",
+        "atomic_results",
         "failed_step",
+        "step_count",
         "duration_ms",
     ),
 )
